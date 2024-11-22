@@ -19,6 +19,7 @@
 ## Requirements
 
 - **Linux** (tested on Arch Linux)
+- **Bluetooth Device**
 - **Python 3.x**
 - **BlueZ** - Library for Bluetooth management.
 - **Python Dependencies**:
