@@ -22,6 +22,7 @@ A clear and concise description of what you expected to happen.
 
 **Desktop (please complete the following information):**
  - OS: [e.g. Arch Linux]
+ - Desktop Environment or WM: [e.g. GNOME, Hyprland]
  - Version [e.g. 1.0.0]
 
 **Additional context**
