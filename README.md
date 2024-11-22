@@ -18,8 +18,9 @@
 
 ## Requirements
 
+- **Linux** (tested on Arch Linux)
 - **Python 3.x**
-- **BlueZ** (for Linux) - Library for Bluetooth management.
+- **BlueZ** - Library for Bluetooth management.
 - **Python Dependencies**:
   - `pybluez`: To interact with the Bluetooth device.
   - `configparser`: For INI file configuration.
