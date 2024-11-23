@@ -144,21 +144,21 @@ def main():
         )
 
     elif args.config:
-        lock_cmd = input(f"Lock command (current: {config['lock_cmd']}) ➔ ")
+        lock_cmd = input(f"Lock command (current: {config["SETTINGS"]["lock_cmd"]}) : ")
         if lock_cmd:
             config["SETTINGS"]["lock_cmd"] = lock_cmd
 
-        unlock_cmd = input(f"Unlock command (current: {config['unlock_cmd']}) ➔ ")
+        unlock_cmd = input(f"Unlock command (current: {config["SETTINGS"]["unlock_cmd"]}) : ")
         if unlock_cmd:
             config["SETTINGS"]["unlock_cmd"] = unlock_cmd
 
-        sleep_time = input(f"Time interval between checks in seconds (current: {config['sleep_time']}) ➔ ")
+        sleep_time = input(f"Time interval between checks in seconds (current: {config["SETTINGS"]["sleep_time"]}) : ")
         if sleep_time:
-            config["SETTINGS"]["sleep_time"] = int(sleep_time)
+            config["SETTINGS"]["sleep_time"] = sleep_time
 
-        discover_time = input(f"Bluetooth device discovery time (current: {config['discover_time']}) ➔ ")
+        discover_time = input(f"Bluetooth device discovery time (current: {config["SETTINGS"]["discover_time"]}) : ")
         if discover_time:
-            config["SETTINGS"]["discover_time"] = int(discover_time)
+            config["SETTINGS"]["discover_time"] = discover_time
 
         save_config(config)
         print("Configuration saved.")
