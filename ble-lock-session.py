@@ -11,10 +11,11 @@ import json
 import configparser
 import argparse
 import shutil
+from contextlib import nullcontext
 
 CONFIG_DIR = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "ble-lock-session/config.ini")
-LOGFILE = "/tmp/ble-lock-session.log"
+LOGFILE = os.getenv("BLE_LOCK_LOGFILE","-")
 
 # Function to load the configuration from a JSON file
 def load_config():
@@ -81,7 +82,8 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time):
 
     state = 1
     try:
-        with open(LOGFILE, 'w') as file:
+        open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'w')
+        with open_log() as file:
             while True:
                 try:
                     check = bluetooth.lookup_name(target_address, timeout=discover_time)
