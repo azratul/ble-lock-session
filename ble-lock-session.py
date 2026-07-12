@@ -7,7 +7,6 @@ import subprocess
 import time
 import datetime
 import sys
-import json
 import configparser
 import argparse
 import shutil
@@ -17,7 +16,7 @@ CONFIG_DIR = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "ble-lock-session/config.ini")
 LOGFILE = os.getenv("BLE_LOCK_LOGFILE","-")
 
-# Function to load the configuration from a JSON file
+# Function to load the configuration from a .ini file
 def load_config():
     config = configparser.ConfigParser()
 
@@ -82,7 +81,7 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time):
 
     state = 1
     try:
-        open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'w')
+        open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
         with open_log() as file:
             while True:
                 try:
@@ -102,10 +101,10 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time):
                         file.write(output + '\n')
                         file.flush()
                         state = 0
-
-                    time.sleep(sleep_time)
                 except bluetooth.BluetoothError as e:
                     print(f"Error checking device: {e}")
+                finally:
+                    time.sleep(sleep_time)
     except KeyboardInterrupt:
         print("Monitoring stopped by user.")
     except Exception as e:
