@@ -31,7 +31,8 @@ def load_config():
             'lock_cmd': get_default_lock_command(desktop),
             'unlock_cmd': get_default_unlock_command(desktop),
             'sleep_time': '5',
-            'discover_time': '25'
+            'discover_time': '25',
+            'fail_checks': '3'
         }
 
         with open(CONFIG_FILE, 'w') as configfile:
@@ -73,13 +74,14 @@ def scan_device(target_name, discover_time):
     return None
 
 # Main function to activate automatic lock/unlock
-def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time):
+def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_checks):
 
     if not shutil.which(lock_cmd.split()[0]) or not shutil.which(unlock_cmd.split()[0]):
         print("Error: lock_cmd or unlock_cmd is not a valid command.")
         sys.exit(1)
 
     state = 1
+    misses = 0
     try:
         open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
         with open_log() as file:
@@ -89,18 +91,24 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time):
 
                     event = datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")
 
-                    if check and state == 0:
-                        subprocess.Popen(unlock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        output = f" [{event}] ➔ [UNLOCKED]"
-                        file.write(output + '\n')
-                        file.flush()
-                        state = 1
-                    elif not check and state == 1:
-                        subprocess.Popen(lock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        output = f" [{event}] ➔ [LOCKED]"
-                        file.write(output + '\n')
-                        file.flush()
-                        state = 0
+                    if check:
+                        misses = 0
+                        if state == 0:
+                            subprocess.Popen(unlock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            output = f" [{event}] ➔ [UNLOCKED]"
+                            file.write(output + '\n')
+                            file.flush()
+                            state = 1
+                    elif state == 1:
+                        # A single failed lookup is often transient; only lock
+                        # after fail_checks consecutive misses.
+                        misses += 1
+                        if misses >= fail_checks:
+                            subprocess.Popen(lock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            output = f" [{event}] ➔ [LOCKED]"
+                            file.write(output + '\n')
+                            file.flush()
+                            state = 0
                 except bluetooth.BluetoothError as e:
                     print(f"Error checking device: {e}")
                 finally:
@@ -141,7 +149,8 @@ def main():
             config["SETTINGS"]["lock_cmd"],
             config["SETTINGS"]["unlock_cmd"],
             int(config["SETTINGS"]["sleep_time"]),
-            int(config["SETTINGS"]["discover_time"])
+            int(config["SETTINGS"]["discover_time"]),
+            int(config["SETTINGS"].get("fail_checks", "3"))
         )
 
     elif args.config:
@@ -160,6 +169,13 @@ def main():
         discover_time = input(f"Bluetooth device discovery time (current: {config['SETTINGS']['discover_time']}) : ")
         if discover_time:
             config["SETTINGS"]["discover_time"] = discover_time
+
+        current_fail_checks = config["SETTINGS"].get("fail_checks", "3")
+        fail_checks = input(f"Consecutive failed checks before locking (current: {current_fail_checks}) : ")
+        if fail_checks:
+            config["SETTINGS"]["fail_checks"] = fail_checks
+        elif "fail_checks" not in config["SETTINGS"]:
+            config["SETTINGS"]["fail_checks"] = current_fail_checks
 
         save_config(config)
         print("Configuration saved.")
