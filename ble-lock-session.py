@@ -22,8 +22,9 @@ def default_settings():
         'target_address': '',
         'lock_cmd': get_default_lock_command(desktop),
         'unlock_cmd': get_default_unlock_command(desktop),
-        'sleep_time': '5',
-        'discover_time': '15',
+        'sleep_time': '3',
+        'discover_time': '5',
+        'scan_duration': '60',
         'fail_checks': '3'
     }
 
@@ -100,14 +101,18 @@ def get_default_unlock_command(desktop):
         return "loginctl unlock-session"
 
 # Function to scan for Bluetooth devices
-def scan_device(target_name, discover_time):
-    try:
-        for bdaddr in bluetooth.discover_devices(duration=discover_time):
-            if target_name == bluetooth.lookup_name(bdaddr):
-                return bdaddr
-    except bluetooth.BluetoothError as e:
-        print(f"Error scanning for device: {e}")
-    return None
+def scan_device(target_name, scan_duration):
+    deadline = time.time() + scan_duration
+    while True:
+        try:
+            for bdaddr, name in bluetooth.discover_devices(duration=4, lookup_names=True, flush_cache=True):
+                if target_name == name:
+                    return bdaddr
+        except bluetooth.BluetoothError as e:
+            print(f"Error scanning for device: {e}")
+            time.sleep(1)
+        if time.time() >= deadline:
+            return None
 
 # Write a timestamped message to the log destination
 def log(file, message):
@@ -175,7 +180,7 @@ def main():
 
     if args.scan:
         target_name = input("Enter the name of the device to search : ")
-        bdaddr = scan_device(target_name, get_positive_int(config["SETTINGS"], "discover_time"))
+        bdaddr = scan_device(target_name, get_positive_int(config["SETTINGS"], "scan_duration"))
         if bdaddr:
             print(f"Device found: {bdaddr}")
             config["SETTINGS"]["target_address"] = bdaddr
@@ -210,9 +215,13 @@ def main():
         if sleep_time:
             config["SETTINGS"]["sleep_time"] = sleep_time
 
-        discover_time = prompt_positive_int("Bluetooth device discovery time", config["SETTINGS"]["discover_time"])
+        discover_time = prompt_positive_int("Per-check lookup timeout for --start in seconds", config["SETTINGS"]["discover_time"])
         if discover_time:
             config["SETTINGS"]["discover_time"] = discover_time
+
+        scan_duration = prompt_positive_int("Scan duration for --scan in seconds", config["SETTINGS"]["scan_duration"])
+        if scan_duration:
+            config["SETTINGS"]["scan_duration"] = scan_duration
 
         fail_checks = prompt_positive_int("Consecutive failed checks before locking", config["SETTINGS"]["fail_checks"])
         if fail_checks:
