@@ -23,14 +23,14 @@ def default_settings():
         'lock_cmd': get_default_lock_command(desktop),
         'unlock_cmd': get_default_unlock_command(desktop),
         'sleep_time': '3',
-        'discover_time': '5',
+        'discover_time': '7',
         'scan_duration': '60',
         'fail_checks': '3'
     }
 
 # Function to load the configuration from a .ini file
 def load_config():
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
 
     exists = os.path.exists(CONFIG_FILE)
     if exists:
