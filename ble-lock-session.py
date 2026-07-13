@@ -109,6 +109,15 @@ def scan_device(target_name, discover_time):
         print(f"Error scanning for device: {e}")
     return None
 
+# Write a timestamped message to the log destination
+def log(file, message):
+    event = datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")
+    try:
+        file.write(f" [{event}] {message}\n")
+        file.flush()
+    except OSError as e:
+        print(f"Error writing to log: {e}")
+
 # Main function to activate automatic lock/unlock
 def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_checks):
 
@@ -126,15 +135,11 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
                 try:
                     check = bluetooth.lookup_name(target_address, timeout=discover_time)
 
-                    event = datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")
-
                     if check:
                         misses = 0
                         if state == 0:
                             subprocess.Popen(unlock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            output = f" [{event}] ➔ [UNLOCKED]"
-                            file.write(output + '\n')
-                            file.flush()
+                            log(file, "➔ [UNLOCKED]")
                             state = 1
                     elif state == 1:
                         # A single failed lookup is often transient; only lock
@@ -142,18 +147,20 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
                         misses += 1
                         if misses >= fail_checks:
                             subprocess.Popen(lock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            output = f" [{event}] ➔ [LOCKED]"
-                            file.write(output + '\n')
-                            file.flush()
+                            log(file, "➔ [LOCKED]")
                             state = 0
                 except bluetooth.BluetoothError as e:
-                    print(f"Error checking device: {e}")
+                    log(file, f"Error checking device: {e}")
+                except Exception as e:
+                    log(file, f"Unexpected error: {e}")
                 finally:
                     time.sleep(sleep_time)
     except KeyboardInterrupt:
         print("Monitoring stopped by user.")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        # Reaching this means the loop itself is dead
+        print(f"Fatal error: {e}")
+        sys.exit(1)
 
 # Command-line arguments using argparse
 def main():
