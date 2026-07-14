@@ -29,11 +29,24 @@ No Python packages need to be installed. Classic Bluetooth devices (e.g. phones)
 
 ## Installation
 
-Clone the repository and navigate to the project directory:
+The recommended way is [pipx](https://pipx.pypa.io/), which installs the `ble-lock-session` command in an isolated environment:
+
+```bash
+$ pipx install git+https://github.com/azratul/ble-lock-session.git
+```
+
+Alternatively, with pip:
+
+```bash
+$ pip install --user git+https://github.com/azratul/ble-lock-session.git
+```
+
+Or run it straight from a clone, no installation needed:
 
 ```bash
 $ git clone https://github.com/azratul/ble-lock-session.git
 $ cd ble-lock-session
+$ python ble_lock_session.py --help
 ```
 
 ## Configuration
@@ -43,7 +56,7 @@ The configuration file is located at `~/.config/ble-lock-session/config.ini`. If
 You can modify the options in this file or use the following command:
 
 ```bash
-$ python ble-lock-session.py --config
+$ ble-lock-session --config
 ```
 
 You will be able to change the following parameters:
@@ -60,13 +73,13 @@ You will be able to change the following parameters:
 To use BLE Lock Session, you first need to scan and save the address of your Bluetooth device:
 
 ```bash
-$ python ble-lock-session.py --scan
+$ ble-lock-session --scan
 ```
 
 Then, to start monitoring and automatically lock/unlock:
 
 ```bash
-$ python ble-lock-session.py --start
+$ ble-lock-session --start
 ```
 
 You can stop the script with **Ctrl + C**.
