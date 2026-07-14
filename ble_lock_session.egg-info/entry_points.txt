@@ -1,2 +1,0 @@
-[console_scripts]
-ble-lock-session = ble_lock_session:main
