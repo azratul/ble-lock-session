@@ -111,11 +111,24 @@ class ScanDeviceTest(unittest.TestCase):
 class ClassicPresenceMonitorTest(unittest.TestCase):
     MAC = "AA:BB:CC:DD:EE:FF"
 
+    def bluetooth_socket(self, fake_sock):
+        # setup-python builds may omit Linux Bluetooth socket constants.
+        # Provide the complete socket API here so these tests exercise the
+        # connection logic independently of how the interpreter was built.
+        return mock.patch.multiple(
+            bls.socket,
+            AF_BLUETOOTH=mock.sentinel.af_bluetooth,
+            SOCK_SEQPACKET=mock.sentinel.sock_seqpacket,
+            BTPROTO_L2CAP=mock.sentinel.btproto_l2cap,
+            socket=mock.Mock(return_value=fake_sock),
+            create=True,
+        )
+
     def connect(self, connect_effect):
         monitor = bls.ClassicPresenceMonitor()
         fake_sock = mock.MagicMock()
         fake_sock.connect.side_effect = connect_effect
-        with mock.patch.object(bls.socket, "socket", return_value=fake_sock):
+        with self.bluetooth_socket(fake_sock):
             result = monitor.connect(self.MAC, 5)
         return monitor, fake_sock, result
 
@@ -145,6 +158,16 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         monitor = bls.ClassicPresenceMonitor()
         with mock.patch.object(bls, "socket", mock.MagicMock(spec=[])):
             self.assertFalse(monitor.connect(self.MAC, 5))
+
+    def test_python_with_incomplete_bluetooth_support(self):
+        required = ("AF_BLUETOOTH", "SOCK_SEQPACKET", "BTPROTO_L2CAP")
+        for missing in required:
+            available = [name for name in required if name != missing]
+            incomplete_socket = mock.MagicMock(spec=available + ["socket"])
+            with self.subTest(missing=missing), \
+                    mock.patch.object(bls, "socket", incomplete_socket):
+                self.assertFalse(bls.ClassicPresenceMonitor().connect(self.MAC, 5))
+            incomplete_socket.socket.assert_not_called()
 
     def test_still_present_without_held_channel(self):
         self.assertFalse(bls.ClassicPresenceMonitor().still_present(self.MAC))
@@ -176,7 +199,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         monitor.last_keepalive = time.time() - bls.KEEPALIVE_INTERVAL
         new_sock = mock.MagicMock()
         with mock.patch.object(bls.select, "select", return_value=([], [], [])), \
-                mock.patch.object(bls.socket, "socket", return_value=new_sock):
+                self.bluetooth_socket(new_sock):
             self.assertTrue(monitor.still_present(self.MAC))
         dead_sock.close.assert_called_once()
         self.assertIs(monitor.sock, new_sock)
@@ -188,7 +211,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         monitor.sock = old_sock
         new_sock = mock.MagicMock()
         with mock.patch.object(bls.select, "select", return_value=([old_sock], [], [])), \
-                mock.patch.object(bls.socket, "socket", return_value=new_sock):
+                self.bluetooth_socket(new_sock):
             self.assertTrue(monitor.still_present(self.MAC))
         old_sock.close.assert_called_once()
         self.assertIs(monitor.sock, new_sock)
@@ -226,7 +249,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         gone_sock = mock.MagicMock()
         gone_sock.connect.side_effect = socket.timeout()
         with mock.patch.object(bls.select, "select", return_value=([dead_sock], [], [])), \
-                mock.patch.object(bls.socket, "socket", return_value=gone_sock):
+                self.bluetooth_socket(gone_sock):
             self.assertFalse(monitor.still_present(self.MAC))
         self.assertIsNone(monitor.sock)
 

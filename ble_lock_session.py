@@ -161,7 +161,9 @@ class ClassicPresenceMonitor:
         self.last_keepalive = 0
 
     def supported(self):
-        return hasattr(socket, "AF_BLUETOOTH")
+        return all(hasattr(socket, name) for name in (
+            "AF_BLUETOOTH", "SOCK_SEQPACKET", "BTPROTO_L2CAP"
+        ))
 
     # Minimal SDP service-search request (for the L2CAP UUID, which any
     # SDP server matches); the periodic exchange marks the link active.
