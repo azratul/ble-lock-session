@@ -289,8 +289,11 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
 
     state = 1
     misses = 0
+
+    def open_log():
+        return nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
+
     try:
-        open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
         with open_log() as file:
             while True:
                 try:
