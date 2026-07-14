@@ -1,0 +1,18 @@
+# User service for BLE Lock Session.
+# Install:  cp ble-lock-session.service ~/.config/systemd/user/
+# Enable:   systemctl --user enable --now ble-lock-session
+#
+# ExecStart assumes a pipx/pip --user install (~/.local/bin). If the
+# command lives elsewhere (e.g. /usr/bin for a distro package), adjust it.
+
+[Unit]
+Description=Lock/unlock the session based on Bluetooth device proximity
+Documentation=https://github.com/azratul/ble-lock-session
+
+[Service]
+ExecStart=%h/.local/bin/ble-lock-session --start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

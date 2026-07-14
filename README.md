@@ -84,6 +84,25 @@ $ ble-lock-session --start
 
 You can stop the script with **Ctrl + C**.
 
+### Running as a systemd service
+
+To keep the monitor running in the background without an open terminal, install the bundled user service:
+
+```bash
+$ mkdir -p ~/.config/systemd/user
+$ cp ble-lock-session.service ~/.config/systemd/user/
+$ systemctl --user enable --now ble-lock-session
+```
+
+Check its status and logs with:
+
+```bash
+$ systemctl --user status ble-lock-session
+$ journalctl --user -u ble-lock-session -f
+```
+
+The unit assumes the `ble-lock-session` command is in `~/.local/bin` (the pipx/`pip install --user` location). If you installed it elsewhere, edit the `ExecStart=` line accordingly.
+
 ## Available Commands
 
 - `--scan`: Searches for a Bluetooth device and saves the MAC address in the configuration.
