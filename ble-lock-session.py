@@ -14,6 +14,8 @@ import argparse
 import shutil
 from contextlib import nullcontext
 
+__version__ = "1.0.0"
+
 CONFIG_DIR = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "ble-lock-session/config.ini")
 LOGFILE = os.getenv("BLE_LOCK_LOGFILE", "-")
@@ -326,9 +328,11 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
 # Command-line arguments using argparse
 def main():
     parser = argparse.ArgumentParser(description="Automatic PC Lock/Unlock using Bluetooth proximity")
-    parser.add_argument("--scan", action="store_true", help="Search and save a Bluetooth device")
-    parser.add_argument("--start", action="store_true", help="Activate automatic lock/unlock")
-    parser.add_argument("--config", action="store_true", help="Modify the current configuration")
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--scan", action="store_true", help="Search and save a Bluetooth device")
+    group.add_argument("--start", action="store_true", help="Activate automatic lock/unlock")
+    group.add_argument("--config", action="store_true", help="Modify the current configuration")
 
     args = parser.parse_args()
 
