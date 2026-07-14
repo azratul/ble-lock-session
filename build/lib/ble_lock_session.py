@@ -3,8 +3,6 @@
 
 import os
 import re
-import select
-import socket
 import subprocess
 import time
 import datetime
@@ -14,26 +12,16 @@ import argparse
 import shutil
 from contextlib import nullcontext
 
+__version__ = "1.0.0"
+
 CONFIG_DIR = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "ble-lock-session/config.ini")
-LOGFILE = os.getenv("BLE_LOCK_LOGFILE", "-")
+LOGFILE = os.getenv("BLE_LOCK_LOGFILE","-")
 
 # bluetoothctl colors its output even when piped; readline also injects \x01/\x02
 ANSI_ESCAPE = re.compile("\x1b\\[[0-9;]*[A-Za-z]|[\x01\x02]")
 # Safety margin for bluetoothctl calls that should return promptly
 BT_TOOL_TIMEOUT = 10
-# L2CAP PSM for SDP: Classic devices answer connections here even with
-# the screen off and without being discoverable.
-SDP_PSM = 1
-# When the device idle-closes the held channel the underlying ACL link
-# survives briefly, so a reconnect while in range takes ~0.1s; 5s covers
-# the full page timeout when the device has actually left.
-RECONNECT_TIMEOUT = 5
-# Seconds between SDP requests on the held channel. Phones tear down
-# idle links (~30s without traffic, even the whole ACL after ~90s with
-# sparser traffic); a small real exchange every few seconds keeps the
-# link up indefinitely.
-KEEPALIVE_INTERVAL = 5
 
 class BluetoothUnavailableError(Exception):
     pass
@@ -117,21 +105,17 @@ def prompt_positive_int(label, current):
             return value
         print("Please enter a positive integer.")
 
+# GNOME gets no special case: gnome-screensaver-command was removed years
+# ago, and GNOME Shell honors the logind Lock/Unlock signals.
 def get_default_lock_command(desktop):
-    if 'GNOME' in desktop:
-        return "gnome-screensaver-command --lock"
-    elif 'SWAY' in desktop:
+    if 'SWAY' in desktop:
         return "swaylock"
-    else:
-        return "loginctl lock-session"
+    return "loginctl lock-session"
 
 def get_default_unlock_command(desktop):
-    if 'GNOME' in desktop:
-        return "gnome-screensaver-command -d"
-    elif 'SWAY' in desktop:
+    if 'SWAY' in desktop:
         return "pkill -USR1 swaylock"
-    else:
-        return "loginctl unlock-session"
+    return "loginctl unlock-session"
 
 # Function to scan for Bluetooth devices (Classic and BLE)
 def scan_device(target_name, scan_duration):
@@ -149,115 +133,24 @@ def scan_device(target_name, scan_duration):
         if time.time() >= deadline:
             return None
 
-# Tracks a Classic device by holding an L2CAP connection to its SDP
-# channel open across checks (phones answer even when not discoverable
-# or with the screen off; no privileges needed, unlike hcitool/l2ping).
-# Connecting and closing per check would make the desktop announce a
-# connect/disconnect notification pair every cycle; holding the channel
-# keeps the underlying ACL link stable, so real arrivals and departures
-# surface as a single notification each.
-class ClassicPresenceMonitor:
-    def __init__(self):
-        self.sock = None
-        self.txid = 0
-        self.last_keepalive = 0
-
-    def supported(self):
-        return hasattr(socket, "AF_BLUETOOTH")
-
-    # Minimal SDP service-search request (for the L2CAP UUID, which any
-    # SDP server matches); the periodic exchange marks the link active.
-    def keepalive(self):
-        packet = bytes([
-            0x02,                          # ServiceSearchRequest
-            self.txid >> 8, self.txid & 0xFF,
-            0x00, 0x08,                    # parameter length
-            0x35, 0x03, 0x19, 0x01, 0x00,  # pattern: DES { UUID16 0x0100 }
-            0x00, 0x01,                    # max record count
-            0x00,                          # no continuation state
-        ])
-        self.txid = (self.txid + 1) & 0xFFFF
-        self.sock.send(packet)
-        # Collect the answer here so wait() doesn't wake up for it
-        readable, _, _ = select.select([self.sock], [], [], 1)
-        if readable and self.sock.recv(1024) == b"":
-            raise OSError("channel closed")
-        self.last_keepalive = time.time()
-
-    # Try to reach the device; on success keep the channel open. Any
-    # answer — even a rejected connection — proves the device is in
-    # range; only silence (timeout / host down) means absence.
-    def connect(self, mac, timeout):
-        if not self.supported():
-            return False
-        sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
-        try:
-            sock.settimeout(timeout)
-            sock.connect((mac, SDP_PSM))
-        except ConnectionError:
-            sock.close()
-            return True
-        except OSError:
-            sock.close()
-            return False
-        sock.setblocking(False)
-        self.sock = sock
-        self.last_keepalive = time.time()
-        return True
-
-    # True while the held channel is alive, sending a keepalive when one
-    # is due. If the device closed the channel anyway, reconnect at once
-    # so the ACL link never drops while the device is in range.
-    def still_present(self, mac):
-        if self.sock is None:
-            return False
-        try:
-            readable, _, errored = select.select([self.sock], [], [self.sock], 0)
-            if errored or (readable and self.sock.recv(1024) == b""):
-                raise OSError("channel closed")
-            if time.time() - self.last_keepalive >= KEEPALIVE_INTERVAL:
-                self.keepalive()
-            return True
-        except OSError:
-            self.disconnect()
-            return self.connect(mac, RECONNECT_TIMEOUT)
-
-    # Sleep between checks, waking early if the held channel reports an
-    # event (usually the device idle-closing it) so the reconnect in
-    # still_present() lands while the underlying ACL link is still up —
-    # waiting the full interval would let the link lapse and force a
-    # slow page to a sleeping device.
-    def wait(self, seconds):
-        if self.sock is None:
-            time.sleep(seconds)
-            return
-        readable, _, errored = select.select([self.sock], [], [self.sock], seconds)
-        if readable or errored:
-            # Let the close settle; also caps the cycle rate if the
-            # device keeps closing the channel right away.
-            time.sleep(0.5)
-
-    def disconnect(self):
-        if self.sock is not None:
-            self.sock.close()
-            self.sock = None
-
 # Check if the device is reachable, trying the cheapest signals first:
-# the held Classic channel, an active connection (paired BLE wearables),
-# a Classic connect attempt, then a discovery pass (BLE devices
-# advertising nearby).
-def device_present(monitor, target_address, discover_time):
+# an active connection (paired BLE wearables), a Classic name request
+# (phones answer even when not discoverable), then a discovery pass
+# (BLE devices advertising nearby).
+def device_present(target_address, discover_time):
     mac = target_address.upper()
-
-    if monitor.still_present(mac):
-        return True
 
     info = bluetoothctl(["info", mac], BT_TOOL_TIMEOUT)
     if "Connected: yes" in info:
         return True
 
-    if monitor.connect(mac, discover_time):
-        return True
+    if shutil.which("hcitool"):
+        try:
+            result = subprocess.run(["hcitool", "name", mac], capture_output=True, text=True, timeout=discover_time)
+            if result.returncode == 0 and result.stdout.strip():
+                return True
+        except subprocess.TimeoutExpired:
+            pass
 
     scan_output = bluetoothctl(["--timeout", str(discover_time), "scan", "on"], discover_time + BT_TOOL_TIMEOUT)
     for line in scan_output.splitlines():
@@ -269,7 +162,7 @@ def device_present(monitor, target_address, discover_time):
 def log(file, message):
     event = datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")
     try:
-        file.write(f"[{event}] {message}\n")
+        file.write(f" [{event}] {message}\n")
         file.flush()
     except OSError as e:
         print(f"Error writing to log: {e}")
@@ -285,18 +178,20 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
     if not shutil.which("bluetoothctl"):
         print("Error: bluetoothctl not found. Install BlueZ.")
         sys.exit(1)
-    monitor = ClassicPresenceMonitor()
-    if not monitor.supported():
-        print("Note: this Python lacks Bluetooth socket support; Classic device probing disabled (BLE detection still works).")
+    if not shutil.which("hcitool"):
+        print("Note: hcitool not found; Classic name requests disabled (BLE detection still works).")
 
     state = 1
     misses = 0
+
+    def open_log():
+        return nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
+
     try:
-        open_log = lambda: nullcontext(sys.stdout) if LOGFILE == "-" else open(LOGFILE, 'a')
         with open_log() as file:
             while True:
                 try:
-                    check = device_present(monitor, target_address, discover_time)
+                    check = device_present(target_address, discover_time)
 
                     if check:
                         misses = 0
@@ -317,22 +212,22 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
                 except Exception as e:
                     log(file, f"Unexpected error: {e}")
                 finally:
-                    monitor.wait(sleep_time)
+                    time.sleep(sleep_time)
     except KeyboardInterrupt:
         print("Monitoring stopped by user.")
     except Exception as e:
         # Reaching this means the loop itself is dead
         print(f"Fatal error: {e}")
         sys.exit(1)
-    finally:
-        monitor.disconnect()
 
 # Command-line arguments using argparse
 def main():
     parser = argparse.ArgumentParser(description="Automatic PC Lock/Unlock using Bluetooth proximity")
-    parser.add_argument("--scan", action="store_true", help="Search and save a Bluetooth device")
-    parser.add_argument("--start", action="store_true", help="Activate automatic lock/unlock")
-    parser.add_argument("--config", action="store_true", help="Modify the current configuration")
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--scan", action="store_true", help="Search and save a Bluetooth device")
+    group.add_argument("--start", action="store_true", help="Activate automatic lock/unlock")
+    group.add_argument("--config", action="store_true", help="Modify the current configuration")
 
     args = parser.parse_args()
 

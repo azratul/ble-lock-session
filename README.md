@@ -5,7 +5,9 @@
 ## Features
 
 - **Automatic Lock/Unlock**: Locks the screen when you move away and unlocks it when you come closer, using a Bluetooth device.
+- **BLE and Classic Bluetooth**: Detects both BLE devices (smartwatches, bands, tags) and Classic devices (phones), even when they are not in discoverable mode.
 - **Flexible Configuration**: Compatible with popular desktop environments or WM in Linux.
+- **No Python dependencies**: Uses the BlueZ tools already present on most Linux systems.
 
 ## Table of Contents
 - [Requirements](#requirements)
@@ -21,24 +23,17 @@
 - **Linux** (tested on Arch Linux)
 - **Bluetooth Device**
 - **Python 3.x**
-- **BlueZ** - Library for Bluetooth management.
-- **Python Dependencies**:
-  - `pybluez`: To interact with the Bluetooth device.
-  - `configparser`: For INI file configuration.
+- **BlueZ** - `bluetoothctl` must be available (package `bluez-utils` on Arch, `bluez` on Debian/Ubuntu/Fedora).
+
+No Python packages need to be installed. Classic Bluetooth devices (e.g. phones) are detected via Python's built-in Bluetooth sockets — no extra tools required.
 
 ## Installation
 
-First, clone the repository and navigate to the project directory:
+Clone the repository and navigate to the project directory:
 
 ```bash
 $ git clone https://github.com/azratul/ble-lock-session.git
 $ cd ble-lock-session
-```
-
-Install the required dependencies:
-
-```bash
-$ pip install pybluez
 ```
 
 ## Configuration
@@ -55,8 +50,10 @@ You will be able to change the following parameters:
 - **`target_address`**: MAC address of the Bluetooth device.
 - **`lock_cmd`**: Command to lock the screen (depending on the desktop environment).
 - **`unlock_cmd`**: Command to unlock the screen (depending on the desktop environment).
-- **`sleep_time`**: Time interval between checks.
-- **`discover_time`**: Duration of Bluetooth device scanning.
+- **`sleep_time`**: Time interval between checks, in seconds.
+- **`discover_time`**: Per-check timeout when looking for the device during `--start`, in seconds.
+- **`scan_duration`**: Overall deadline for `--scan`, in seconds.
+- **`fail_checks`**: Consecutive failed checks required before locking (protects against transient Bluetooth failures).
 
 ## Usage
 
@@ -85,10 +82,12 @@ You can stop the script with **Ctrl + C**.
 ```ini
 [SETTINGS]
 target_address = 00:1A:7D:DA:71:13
-lock_cmd = gnome-screensaver-command --lock
-unlock_cmd = gnome-screensaver-command -d
-sleep_time = 5
-discover_time = 25
+lock_cmd = loginctl lock-session
+unlock_cmd = loginctl unlock-session
+sleep_time = 3
+discover_time = 7
+scan_duration = 60
+fail_checks = 3
 ```
 
 ## Contributing
