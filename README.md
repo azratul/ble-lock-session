@@ -1,6 +1,6 @@
 # BLE Lock Session
 
-**BLE Lock Session** is a tool that allows you to automatically lock and unlock your computer screen using the proximity of a Bluetooth device. Ideal for users who want to improve the security of their devices and enjoy a hands-free lock/unlock experience.
+**BLE Lock Session** is a tool that allows you to automatically lock and unlock your computer screen using the proximity of a Bluetooth device. Ideal for users who want a hands-free lock/unlock experience (see [Security Considerations](#security-considerations) before relying on it).
 
 ## Features
 
@@ -15,6 +15,8 @@
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Available Commands](#available-commands)
+- [Security Considerations](#security-considerations)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -121,6 +123,18 @@ discover_time = 7
 scan_duration = 60
 fail_checks = 3
 ```
+
+## Security Considerations
+
+**This is a convenience tool, not an authentication mechanism.** Presence is detected by Bluetooth MAC address, and MAC addresses can be spoofed by an attacker who knows (or sniffs) your device's address. Treat the automatic unlock as roughly equivalent to leaving your session open while you are nearby — do not rely on it as a security boundary. If that trade-off is not acceptable for your threat model, use only the lock half (set `unlock_cmd` to something harmless like `true`) or don't use the tool at all.
+
+## Troubleshooting
+
+- **The screen locks but never unlocks.** On some distributions `loginctl unlock-session` requires polkit authorization. Check with `loginctl unlock-session` in a terminal while locked from another TTY; if it prompts or fails, add a polkit rule for your user or use a desktop-specific unlock command.
+- **The phone is not detected when its screen is off.** Phones stop advertising over BLE when idle, so detection relies on the Classic Bluetooth link. That needs Python built with Bluetooth socket support (all major distro packages have it — if yours doesn't, `--start` prints a note about it) and the phone's Bluetooth radio on. Being paired with the computer makes detection most reliable.
+- **The phone shows as "connected" to the computer while in range.** Expected: the tool keeps a lightweight Bluetooth link open to track presence silently — opening and closing one per check would make desktops that announce Bluetooth connections (e.g. blueman) spam notifications.
+- **"no Bluetooth adapter available".** Make sure `bluetoothd` is running (`systemctl status bluetooth`) and the adapter is not blocked (`rfkill list`).
+- **Locks randomly while the device is next to the computer.** Increase `fail_checks` and/or `discover_time` with `--config`; some devices advertise infrequently to save battery.
 
 ## Contributing
 
