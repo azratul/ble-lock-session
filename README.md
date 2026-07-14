@@ -34,21 +34,21 @@ No Python packages need to be installed. Classic Bluetooth devices (e.g. phones)
 The recommended way is [pipx](https://pipx.pypa.io/), which installs the `ble-lock-session` command in an isolated environment:
 
 ```bash
-$ pipx install git+https://github.com/azratul/ble-lock-session.git
+pipx install git+https://github.com/azratul/ble-lock-session.git
 ```
 
 Alternatively, with pip:
 
 ```bash
-$ pip install --user git+https://github.com/azratul/ble-lock-session.git
+pip install --user git+https://github.com/azratul/ble-lock-session.git
 ```
 
 Or run it straight from a clone, no installation needed:
 
 ```bash
-$ git clone https://github.com/azratul/ble-lock-session.git
-$ cd ble-lock-session
-$ python ble_lock_session.py --help
+git clone https://github.com/azratul/ble-lock-session.git
+cd ble-lock-session
+python ble_lock_session.py --help
 ```
 
 ## Configuration
@@ -58,7 +58,7 @@ The configuration file is located at `~/.config/ble-lock-session/config.ini`. If
 You can modify the options in this file or use the following command:
 
 ```bash
-$ ble-lock-session --config
+ble-lock-session --config
 ```
 
 You will be able to change the following parameters:
@@ -75,13 +75,13 @@ You will be able to change the following parameters:
 To use BLE Lock Session, you first need to scan and save the address of your Bluetooth device:
 
 ```bash
-$ ble-lock-session --scan
+ble-lock-session --scan
 ```
 
 Then, to start monitoring and automatically lock/unlock:
 
 ```bash
-$ ble-lock-session --start
+ble-lock-session --start
 ```
 
 You can stop the script with **Ctrl + C**.
@@ -91,16 +91,16 @@ You can stop the script with **Ctrl + C**.
 To keep the monitor running in the background without an open terminal, install the bundled user service:
 
 ```bash
-$ mkdir -p ~/.config/systemd/user
-$ cp ble-lock-session.service ~/.config/systemd/user/
-$ systemctl --user enable --now ble-lock-session
+mkdir -p ~/.config/systemd/user
+cp ble-lock-session.service ~/.config/systemd/user/
+systemctl --user enable --now ble-lock-session
 ```
 
 Check its status and logs with:
 
 ```bash
-$ systemctl --user status ble-lock-session
-$ journalctl --user -u ble-lock-session -f
+systemctl --user status ble-lock-session
+journalctl --user -u ble-lock-session -f
 ```
 
 The unit assumes the `ble-lock-session` command is in `~/.local/bin` (the pipx/`pip install --user` location). If you installed it elsewhere, edit the `ExecStart=` line accordingly.
