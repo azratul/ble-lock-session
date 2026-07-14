@@ -117,21 +117,17 @@ def prompt_positive_int(label, current):
             return value
         print("Please enter a positive integer.")
 
+# GNOME gets no special case: gnome-screensaver-command was removed years
+# ago, and GNOME Shell honors the logind Lock/Unlock signals.
 def get_default_lock_command(desktop):
-    if 'GNOME' in desktop:
-        return "gnome-screensaver-command --lock"
-    elif 'SWAY' in desktop:
+    if 'SWAY' in desktop:
         return "swaylock"
-    else:
-        return "loginctl lock-session"
+    return "loginctl lock-session"
 
 def get_default_unlock_command(desktop):
-    if 'GNOME' in desktop:
-        return "gnome-screensaver-command -d"
-    elif 'SWAY' in desktop:
+    if 'SWAY' in desktop:
         return "pkill -USR1 swaylock"
-    else:
-        return "loginctl unlock-session"
+    return "loginctl unlock-session"
 
 # Function to scan for Bluetooth devices (Classic and BLE)
 def scan_device(target_name, scan_duration):
