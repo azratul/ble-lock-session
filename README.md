@@ -62,13 +62,18 @@ ble-lock-session --config
 ```
 
 You will be able to change the following parameters:
+
 - **`target_address`**: MAC address of the Bluetooth device.
 - **`lock_cmd`**: Command to lock the screen (depending on the desktop environment).
 - **`unlock_cmd`**: Command to unlock the screen (depending on the desktop environment).
 - **`sleep_time`**: Time interval between checks, in seconds.
-- **`discover_time`**: Per-check timeout when looking for the device during `--start`, in seconds.
+- **`discover_time`**: Total time budget for each presence check during `--start`, shared by Classic and BLE probes, in seconds.
 - **`scan_duration`**: Overall deadline for `--scan`, in seconds.
 - **`fail_checks`**: Consecutive failed checks required before locking (protects against transient Bluetooth failures).
+
+With the defaults, a departure immediately after a successful check locks the
+session in about 30 seconds in the slowest normal case: one initial 3-second
+wait, three checks of up to 7 seconds, and two 3-second waits between misses.
 
 ## Usage
 
@@ -134,6 +139,7 @@ fail_checks = 3
 - **The phone is not detected when its screen is off.** Phones stop advertising over BLE when idle, so detection relies on the Classic Bluetooth link. That needs Python built with Bluetooth socket support (all major distro packages have it — if yours doesn't, `--start` prints a note about it) and the phone's Bluetooth radio on. Being paired with the computer makes detection most reliable.
 - **The phone shows as "connected" to the computer while in range.** Expected: the tool keeps a lightweight Bluetooth link open to track presence silently — opening and closing one per check would make desktops that announce Bluetooth connections (e.g. blueman) spam notifications.
 - **"no Bluetooth adapter available".** Make sure `bluetoothd` is running (`systemctl status bluetooth`) and the adapter is not blocked (`rfkill list`).
+- **The adapter is disabled while monitoring.** Adapter errors count as failed checks, so the session locks after `fail_checks` consecutive failures instead of remaining unlocked indefinitely.
 - **Locks randomly while the device is next to the computer.** Increase `fail_checks` and/or `discover_time` with `--config`; some devices advertise infrequently to save battery.
 
 ## Contributing

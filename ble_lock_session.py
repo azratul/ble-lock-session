@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+import configparser
+import datetime
+import math
 import os
 import re
 import select
+import shutil
 import socket
 import subprocess
-import time
-import datetime
 import sys
-import configparser
-import argparse
-import shutil
+import time
 from contextlib import nullcontext
 
 __version__ = "1.0.0"
@@ -24,21 +25,52 @@ LOGFILE = os.getenv("BLE_LOCK_LOGFILE", "-")
 ANSI_ESCAPE = re.compile("\x1b\\[[0-9;]*[A-Za-z]|[\x01\x02]")
 # Safety margin for bluetoothctl calls that should return promptly
 BT_TOOL_TIMEOUT = 10
+# A local cached-info query should be effectively immediate; do not let it
+# consume the whole per-check discovery budget if bluetoothd gets stuck.
+INFO_TIMEOUT = 1
 # L2CAP PSM for SDP: Classic devices answer connections here even with
 # the screen off and without being discoverable.
 SDP_PSM = 1
-# When the device idle-closes the held channel the underlying ACL link
-# survives briefly, so a reconnect while in range takes ~0.1s; 5s covers
-# the full page timeout when the device has actually left.
-RECONNECT_TIMEOUT = 5
-# Seconds between SDP requests on the held channel. Phones tear down
-# idle links (~30s without traffic, even the whole ACL after ~90s with
-# sparser traffic); a small real exchange every few seconds keeps the
-# link up indefinitely.
-KEEPALIVE_INTERVAL = 5
+# Limit the Classic page attempt and preserve part of discover_time for a
+# BLE scan. Together they must stay inside the single per-check deadline.
+CLASSIC_PROBE_TIMEOUT = 5
+# Keep a useful active-discovery window for BLE-only devices. With the
+# default seven-second budget this leaves up to four seconds for a direct
+# Classic page and guarantees three seconds for BLE, even after a failed
+# held-channel check or a slow cached-info query.
+BLE_SCAN_RESERVE = 3
+# A quiet held socket is not proof of presence: require an SDP answer on
+# every check so a vanished device is detected without waiting for the
+# kernel's much longer link-supervision timeout.
+KEEPALIVE_TIMEOUT = 1
+
+# bluetoothctl prints cached devices while starting. Only events after
+# "Discovery started" are fresh evidence from this scan.
+DEVICE_EVENT = re.compile(
+    r"\[(NEW|CHG)\]\s+DEVICE\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})(?=\s|$)",
+    re.IGNORECASE,
+)
+PRESENCE_CHANGES = (
+    "CONNECTED: YES",
+    "RSSI:",
+    "TXPOWER:",
+    "MANUFACTURERDATA",
+    "SERVICEDATA",
+    "ADVERTISINGFLAGS:",
+    "ADVERTISINGDATA",
+)
 
 class BluetoothUnavailableError(Exception):
     pass
+
+
+def clean_bluetooth_output(output):
+    if not output:
+        return ""
+    if isinstance(output, bytes):
+        output = output.decode(errors="replace")
+    return ANSI_ESCAPE.sub("", output)
+
 
 # Run bluetoothctl and return its output with ANSI codes stripped
 def bluetoothctl(args, timeout):
@@ -46,10 +78,50 @@ def bluetoothctl(args, timeout):
         result = subprocess.run(["bluetoothctl"] + args, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         raise BluetoothUnavailableError("bluetoothctl not found (install BlueZ)")
-    output = ANSI_ESCAPE.sub("", result.stdout)
+    output = clean_bluetooth_output(result.stdout)
     if "No default controller" in output + result.stderr:
         raise BluetoothUnavailableError("no Bluetooth adapter available (is bluetoothd running?)")
     return output
+
+
+def scan_reports_present(output, mac):
+    mac = mac.upper()
+    discovery_started = False
+    for line in output.splitlines():
+        upper = line.upper()
+        if "DISCOVERY STARTED" in upper:
+            discovery_started = True
+            continue
+        if not discovery_started:
+            continue
+
+        event = DEVICE_EVENT.search(upper)
+        if event is None or event.group(2) != mac:
+            continue
+        if event.group(1) == "NEW":
+            return True
+
+        change = upper[event.end():].strip()
+        if any(change.startswith(prefix) for prefix in PRESENCE_CHANGES):
+            return True
+    return False
+
+
+def info_reports_connected(output, mac):
+    mac = mac.upper()
+    for line in output.splitlines():
+        upper = line.strip().upper()
+        # Normal `bluetoothctl info <mac>` property output.
+        if upper == "CONNECTED: YES":
+            return True
+        # Ignore asynchronous changes for unrelated devices.
+        event = DEVICE_EVENT.search(upper)
+        if event is not None and event.group(2) == mac:
+            change = upper[event.end():].strip()
+            if change.startswith("CONNECTED: YES"):
+                return True
+    return False
+
 
 def default_settings():
     desktop = os.getenv('XDG_CURRENT_DESKTOP', '').upper()
@@ -158,7 +230,6 @@ class ClassicPresenceMonitor:
     def __init__(self):
         self.sock = None
         self.txid = 0
-        self.last_keepalive = 0
 
     def supported(self):
         return all(hasattr(socket, name) for name in (
@@ -167,7 +238,7 @@ class ClassicPresenceMonitor:
 
     # Minimal SDP service-search request (for the L2CAP UUID, which any
     # SDP server matches); the periodic exchange marks the link active.
-    def keepalive(self):
+    def keepalive(self, timeout=KEEPALIVE_TIMEOUT):
         packet = bytes([
             0x02,                          # ServiceSearchRequest
             self.txid >> 8, self.txid & 0xFF,
@@ -178,11 +249,15 @@ class ClassicPresenceMonitor:
         ])
         self.txid = (self.txid + 1) & 0xFFFF
         self.sock.send(packet)
-        # Collect the answer here so wait() doesn't wake up for it
-        readable, _, _ = select.select([self.sock], [], [], 1)
-        if readable and self.sock.recv(1024) == b"":
+        # Collect the answer here so wait() does not wake up for it. A
+        # successful local send without a remote answer is not presence.
+        readable, _, errored = select.select(
+            [self.sock], [], [self.sock], timeout
+        )
+        if errored or not readable:
+            raise TimeoutError("no SDP keepalive response")
+        if self.sock.recv(1024) == b"":
             raise OSError("channel closed")
-        self.last_keepalive = time.time()
 
     # Try to reach the device; on success keep the channel open. Any
     # answer — even a rejected connection — proves the device is in
@@ -194,7 +269,7 @@ class ClassicPresenceMonitor:
         try:
             sock.settimeout(timeout)
             sock.connect((mac, SDP_PSM))
-        except ConnectionError:
+        except ConnectionRefusedError:
             sock.close()
             return True
         except OSError:
@@ -202,36 +277,37 @@ class ClassicPresenceMonitor:
             return False
         sock.setblocking(False)
         self.sock = sock
-        self.last_keepalive = time.time()
         return True
 
-    # True while the held channel is alive, sending a keepalive when one
-    # is due. If the device closed the channel anyway, reconnect at once
-    # so the ACL link never drops while the device is in range.
-    def still_present(self, mac):
+    # Validate the held channel with a real request. Reconnection belongs
+    # to device_present(), which owns the single per-check time budget.
+    def still_present(self, mac, timeout=KEEPALIVE_TIMEOUT):
         if self.sock is None:
             return False
         try:
-            readable, _, errored = select.select([self.sock], [], [self.sock], 0)
-            if errored or (readable and self.sock.recv(1024) == b""):
-                raise OSError("channel closed")
-            if time.time() - self.last_keepalive >= KEEPALIVE_INTERVAL:
-                self.keepalive()
+            self.keepalive(timeout)
             return True
-        except OSError:
+        except (OSError, ValueError):
             self.disconnect()
-            return self.connect(mac, RECONNECT_TIMEOUT)
+            return False
 
     # Sleep between checks, waking early if the held channel reports an
-    # event (usually the device idle-closing it) so the reconnect in
-    # still_present() lands while the underlying ACL link is still up —
-    # waiting the full interval would let the link lapse and force a
-    # slow page to a sleeping device.
+    # event (usually the device idle-closing it) so device_present() can
+    # probe again while the underlying ACL link is still up. Waiting the
+    # full interval would let the link lapse and force a slow page to a
+    # sleeping device.
     def wait(self, seconds):
         if self.sock is None:
             time.sleep(seconds)
             return
-        readable, _, errored = select.select([self.sock], [], [self.sock], seconds)
+        try:
+            readable, _, errored = select.select(
+                [self.sock], [], [self.sock], seconds
+            )
+        except (OSError, ValueError):
+            self.disconnect()
+            time.sleep(0.5)
+            return
         if readable or errored:
             # Let the close settle; also caps the cycle rate if the
             # device keeps closing the channel right away.
@@ -248,22 +324,59 @@ class ClassicPresenceMonitor:
 # advertising nearby).
 def device_present(monitor, target_address, discover_time):
     mac = target_address.upper()
+    deadline = time.monotonic() + discover_time
+    scan_reserve = max(
+        0.0, min(BLE_SCAN_RESERVE, discover_time / 2)
+    )
 
-    if monitor.still_present(mac):
+    def remaining():
+        return max(0.0, deadline - time.monotonic())
+
+    def non_scan_budget(limit):
+        return min(limit, max(0.0, remaining() - scan_reserve))
+
+    had_held_channel = getattr(monitor, "sock", None) is not None
+    held_timeout = non_scan_budget(KEEPALIVE_TIMEOUT)
+    if held_timeout > 0 and monitor.still_present(mac, held_timeout):
         return True
 
-    info = bluetoothctl(["info", mac], BT_TOOL_TIMEOUT)
-    if "Connected: yes" in info:
+    # If an actively verified channel just failed, a cached BlueZ
+    # "Connected: yes" can remain stale until link supervision expires.
+    # Skip that weaker signal and probe the device directly instead.
+    if not had_held_channel:
+        budget = non_scan_budget(INFO_TIMEOUT)
+        if budget <= 0:
+            info = ""
+        else:
+            try:
+                info = bluetoothctl(["info", mac], budget)
+            except subprocess.TimeoutExpired as e:
+                info = clean_bluetooth_output(
+                    getattr(e, "stdout", None) or getattr(e, "output", None)
+                )
+            if info_reports_connected(info, mac):
+                return True
+
+    classic_timeout = non_scan_budget(CLASSIC_PROBE_TIMEOUT)
+    if classic_timeout > 0 and monitor.connect(mac, classic_timeout):
         return True
 
-    if monitor.connect(mac, discover_time):
-        return True
-
-    scan_output = bluetoothctl(["--timeout", str(discover_time), "scan", "on"], discover_time + BT_TOOL_TIMEOUT)
-    for line in scan_output.splitlines():
-        if "DEVICE " + mac in line.upper() and ("[NEW]" in line or "[CHG]" in line):
-            return True
-    return False
+    scan_budget = remaining()
+    if scan_budget <= 0:
+        return False
+    scan_duration = max(1, math.ceil(scan_budget))
+    try:
+        scan_output = bluetoothctl(
+            ["--timeout", str(scan_duration), "scan", "on"],
+            scan_budget,
+        )
+    except subprocess.TimeoutExpired as e:
+        # The deadline is an expected way for a scan to end. Preserve any
+        # fresh event bluetoothctl printed before it was stopped.
+        scan_output = clean_bluetooth_output(
+            getattr(e, "stdout", None) or getattr(e, "output", None)
+        )
+    return scan_reports_present(scan_output, mac)
 
 # Write a timestamped message to the log destination
 def log(file, message):
@@ -298,27 +411,32 @@ def start(target_address, lock_cmd, unlock_cmd, sleep_time, discover_time, fail_
     try:
         with open_log() as file:
             while True:
+                check = None
                 try:
                     check = device_present(monitor, target_address, discover_time)
+                except (BluetoothUnavailableError, subprocess.TimeoutExpired) as e:
+                    log(file, f"Error checking device: {e}")
+                    check = False
+                except Exception as e:
+                    log(file, f"Unexpected error: {e}")
 
+                try:
                     if check:
                         misses = 0
                         if state == 0:
                             subprocess.Popen(unlock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                             log(file, "➔ [UNLOCKED]")
                             state = 1
-                    elif state == 1:
-                        # A single failed lookup is often transient; only lock
-                        # after fail_checks consecutive misses.
+                    elif check is False and state == 1:
+                        # A single failed lookup is often transient; adapter
+                        # errors count too, so disabling Bluetooth fails safe.
                         misses += 1
                         if misses >= fail_checks:
                             subprocess.Popen(lock_cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                             log(file, "➔ [LOCKED]")
                             state = 0
-                except (BluetoothUnavailableError, subprocess.TimeoutExpired) as e:
-                    log(file, f"Error checking device: {e}")
                 except Exception as e:
-                    log(file, f"Unexpected error: {e}")
+                    log(file, f"Unexpected state-change error: {e}")
                 finally:
                     monitor.wait(sleep_time)
     except KeyboardInterrupt:
