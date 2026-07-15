@@ -50,6 +50,7 @@ DEVICE_EVENT = re.compile(
     r"\[(NEW|CHG)\]\s+DEVICE\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})(?=\s|$)",
     re.IGNORECASE,
 )
+MAC_ADDRESS = re.compile(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
 PRESENCE_CHANGES = (
     "CONNECTED: YES",
     "RSSI:",
@@ -190,6 +191,16 @@ def prompt_positive_int(label, current):
         if value.isdigit() and int(value) > 0:
             return value
         print("Please enter a positive integer.")
+
+# Prompt for a Bluetooth MAC address; empty input keeps the current value
+def prompt_mac(label, current):
+    while True:
+        value = input(f"{label} (current: {current or 'not set'}) : ").strip()
+        if not value:
+            return None
+        if MAC_ADDRESS.fullmatch(value):
+            return value.upper()
+        print("Please enter a MAC address like AA:BB:CC:DD:EE:FF.")
 
 # GNOME gets no special case: gnome-screensaver-command was removed years
 # ago, and GNOME Shell honors the logind Lock/Unlock signals.
@@ -489,6 +500,10 @@ def main():
         )
 
     elif args.config:
+        target_address = prompt_mac("Device MAC address, normally set by --scan", config["SETTINGS"]["target_address"])
+        if target_address:
+            config["SETTINGS"]["target_address"] = target_address
+
         lock_cmd = input(f"Lock command (current: {config['SETTINGS']['lock_cmd']}) : ")
         if lock_cmd:
             config["SETTINGS"]["lock_cmd"] = lock_cmd

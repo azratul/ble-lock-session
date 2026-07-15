@@ -61,6 +61,21 @@ class PositiveIntTest(unittest.TestCase):
             bls.get_positive_int({"sleep_time": "fast"}, "sleep_time")
 
 
+class PromptMacTest(unittest.TestCase):
+    def test_empty_keeps_current(self):
+        with mock.patch("builtins.input", return_value="  "):
+            self.assertIsNone(bls.prompt_mac("MAC", "AA:BB:CC:DD:EE:FF"))
+
+    def test_valid_mac_is_uppercased(self):
+        with mock.patch("builtins.input", return_value="aa:bb:cc:dd:ee:ff"):
+            self.assertEqual(bls.prompt_mac("MAC", ""), "AA:BB:CC:DD:EE:FF")
+
+    def test_invalid_mac_reprompts(self):
+        answers = iter(["nonsense", "AA-BB-CC-DD-EE-FF", "AA:BB:CC:DD:EE:FF"])
+        with mock.patch("builtins.input", side_effect=lambda _: next(answers)):
+            self.assertEqual(bls.prompt_mac("MAC", ""), "AA:BB:CC:DD:EE:FF")
+
+
 class LoadConfigTest(unittest.TestCase):
     def run_load_config(self, initial=None):
         with tempfile.TemporaryDirectory() as tmp:

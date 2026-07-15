@@ -63,7 +63,7 @@ ble-lock-session --config
 
 You will be able to change the following parameters:
 
-- **`target_address`**: MAC address of the Bluetooth device.
+- **`target_address`**: MAC address of the Bluetooth device. Normally set by `--scan`, but you can also enter it directly here if you already know it.
 - **`lock_cmd`**: Command to lock the screen (depending on the desktop environment).
 - **`unlock_cmd`**: Command to unlock the screen (depending on the desktop environment).
 - **`sleep_time`**: Time interval between checks, in seconds.
