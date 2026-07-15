@@ -281,7 +281,7 @@ class ClassicPresenceMonitor:
 
     # Validate the held channel with a real request. Reconnection belongs
     # to device_present(), which owns the single per-check time budget.
-    def still_present(self, mac, timeout=KEEPALIVE_TIMEOUT):
+    def still_present(self, timeout=KEEPALIVE_TIMEOUT):
         if self.sock is None:
             return False
         try:
@@ -337,7 +337,7 @@ def device_present(monitor, target_address, discover_time):
 
     had_held_channel = getattr(monitor, "sock", None) is not None
     held_timeout = non_scan_budget(KEEPALIVE_TIMEOUT)
-    if held_timeout > 0 and monitor.still_present(mac, held_timeout):
+    if held_timeout > 0 and monitor.still_present(held_timeout):
         return True
 
     # If an actively verified channel just failed, a cached BlueZ
@@ -380,7 +380,7 @@ def device_present(monitor, target_address, discover_time):
 
 # Write a timestamped message to the log destination
 def log(file, message):
-    event = datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")
+    event = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         file.write(f"[{event}] {message}\n")
         file.flush()

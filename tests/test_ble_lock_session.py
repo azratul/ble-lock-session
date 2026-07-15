@@ -186,7 +186,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
             incomplete_socket.socket.assert_not_called()
 
     def test_still_present_without_held_channel(self):
-        self.assertFalse(bls.ClassicPresenceMonitor().still_present(self.MAC))
+        self.assertFalse(bls.ClassicPresenceMonitor().still_present())
 
     def test_keepalive_response_confirms_presence(self):
         monitor = bls.ClassicPresenceMonitor()
@@ -195,7 +195,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         with mock.patch.object(
                 bls.select, "select",
                 return_value=([monitor.sock], [], [])) as sel:
-            self.assertTrue(monitor.still_present(self.MAC, 0.25))
+            self.assertTrue(monitor.still_present(0.25))
         self.assertIsNotNone(monitor.sock)
         self.assertEqual(sel.call_args[0][3], 0.25)
         sent = monitor.sock.send.call_args[0][0]
@@ -206,7 +206,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         held_sock = mock.MagicMock()
         monitor.sock = held_sock
         with mock.patch.object(bls.select, "select", return_value=([], [], [])):
-            self.assertFalse(monitor.still_present(self.MAC))
+            self.assertFalse(monitor.still_present())
         held_sock.close.assert_called_once()
         self.assertIsNone(monitor.sock)
 
@@ -216,7 +216,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         dead_sock.send.side_effect = OSError(107, "not connected")
         monitor.sock = dead_sock
         with mock.patch.object(bls.socket, "socket") as create_socket:
-            self.assertFalse(monitor.still_present(self.MAC))
+            self.assertFalse(monitor.still_present())
         dead_sock.close.assert_called_once()
         self.assertIsNone(monitor.sock)
         create_socket.assert_not_called()
@@ -229,7 +229,7 @@ class ClassicPresenceMonitorTest(unittest.TestCase):
         with mock.patch.object(
                 bls.select, "select", return_value=([old_sock], [], [])), \
                 mock.patch.object(bls.socket, "socket") as create_socket:
-            self.assertFalse(monitor.still_present(self.MAC))
+            self.assertFalse(monitor.still_present())
         old_sock.close.assert_called_once()
         self.assertIsNone(monitor.sock)
         create_socket.assert_not_called()
@@ -471,7 +471,7 @@ class DevicePresentTest(unittest.TestCase):
         monitor.sock = mock.sentinel.dead_socket
         scan_timeouts = []
 
-        def still_present(mac, timeout):
+        def still_present(timeout):
             now[0] += timeout
             return False
 
@@ -491,7 +491,7 @@ class DevicePresentTest(unittest.TestCase):
                 mock.patch.object(bls, "bluetoothctl", side_effect=bluetoothctl):
             self.assertFalse(bls.device_present(monitor, self.MAC, 7))
 
-        held_timeout = monitor.still_present.call_args[0][1]
+        held_timeout = monitor.still_present.call_args[0][0]
         self.assertLessEqual(held_timeout, bls.KEEPALIVE_TIMEOUT)
         monitor.connect.assert_called_once()
         self.assertEqual(len(scan_timeouts), 1)
