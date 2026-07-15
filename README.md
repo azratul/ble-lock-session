@@ -31,16 +31,22 @@ No Python packages need to be installed. Classic Bluetooth devices (e.g. phones)
 
 ## Installation
 
-The recommended way is [pipx](https://pipx.pypa.io/), which installs the `ble-lock-session` command in an isolated environment:
+The recommended way is [pipx](https://pipx.pypa.io/), which installs the `ble-lock-session` command from [PyPI](https://pypi.org/project/ble-lock-session/) in an isolated environment:
 
 ```bash
-pipx install git+https://github.com/azratul/ble-lock-session.git
+pipx install ble-lock-session
 ```
 
 Alternatively, with pip:
 
 ```bash
-pip install --user git+https://github.com/azratul/ble-lock-session.git
+pip install --user ble-lock-session
+```
+
+To try the latest development version instead, install straight from the repository:
+
+```bash
+pipx install git+https://github.com/azratul/ble-lock-session.git
 ```
 
 Or run it straight from a clone, no installation needed:
